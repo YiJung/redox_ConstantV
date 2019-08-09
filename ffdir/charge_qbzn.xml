@@ -1,0 +1,28 @@
+<ForceField>
+ <Info>
+  <Source>sapt.itp bmim.itp TF2N.itp</Source>
+  <DateGenerated>Tue Jul 25 11:12:55 2017</DateGenerated>
+  <Reference></Reference>
+ </Info>
+ <AtomTypes>
+  <Type name="qbzn-Cat" class="Cat" element="C" mass="0.0"/>
+  <Type name="qbzn-Hq1" class="Hq" element="H" mass="0.0"/>
+  <Type name="qbzn-Hq2" class="Hq" element="H" mass="0.0"/>
+  <Type name="qbzn-Hq3" class="Hq" element="H" mass="0.0"/>
+  <Type name="qbzn-Cq1" class="Cq" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch1" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch2" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Cq2" class="Cq" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch3" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch4" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Oq1" class="Oq" element="O" mass="0.0"/>
+  <Type name="qbzn-Oq2" class="Oq" element="O" mass="0.0"/>
+  <!-- end semi-benzoquinone   -->
+ </AtomTypes>
+ <NonbondedForce coulomb14scale="0" lj14scale="0">
+  <Atom class="Cat" charge="0.0" sigma="1.00000" epsilon="0.00000"/>
+  <Atom class="Hq" charge="0.1931" sigma="1.00000" epsilon="0.00000"/>
+  <Atom class="Cqh" charge="-0.2078" sigma="1.00000" epsilon="0.00000"/>
+  <Atom class="Cq" charge="0.6167" sigma="1.00000" epsilon="0.00000"/>
+  <Atom class="Oq" charge="-0.4908" sigma="1.00000" epsilon="0.00000"/>
+ </NonbondedForce>

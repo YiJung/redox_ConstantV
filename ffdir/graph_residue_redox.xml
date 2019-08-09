@@ -1,0 +1,54 @@
+<Residues>
+  <Residue name="qbzn">
+   <Atom name="Cat" type="qbzn-Cat"/>
+   <Atom name="Hq1" type="qbzn-Hq1"/>
+   <Atom name="Hq2" type="qbzn-Hq2"/>
+   <Atom name="Hq3" type="qbzn-Hq3"/>
+   <Atom name="Cq1" type="qbzn-Cq1"/>
+   <Atom name="Ch1" type="qbzn-Ch1"/>
+   <Atom name="Ch2" type="qbzn-Ch2"/>
+   <Atom name="Cq2" type="qbzn-Cq2"/>
+   <Atom name="Ch3" type="qbzn-Ch3"/>
+   <Atom name="Ch4" type="qbzn-Ch4"/>
+   <Atom name="Oq1" type="qbzn-Oq1"/>
+   <Atom name="Oq2" type="qbzn-Oq2"/>
+   <Bond from="Cat" to="Ch1"/>
+   <Bond from="Hq1" to="Ch2"/>
+   <Bond from="Hq2" to="Ch3"/>
+   <Bond from="Hq3" to="Ch4"/>
+   <Bond from="Cq1" to="Ch1"/>
+   <Bond from="Cq1" to="Ch4"/>
+   <Bond from="Cq1" to="Oq2"/>
+   <Bond from="Ch1" to="Ch2"/>
+   <Bond from="Ch2" to="Cq2"/>
+   <Bond from="Cq2" to="Ch3"/>
+   <Bond from="Cq2" to="Oq1"/>
+   <Bond from="Ch3" to="Ch4"/>
+  </Residue>
+  <Residue name="qsem">
+   <Atom name="Cat" type="qsem-Cat"/>
+   <Atom name="Hq1" type="qsem-Hq1"/>
+   <Atom name="Hq2" type="qsem-Hq2"/>
+   <Atom name="Hq3" type="qsem-Hq3"/>
+   <Atom name="Cq1" type="qsem-Cq1"/>
+   <Atom name="Ch1" type="qsem-Ch1"/>
+   <Atom name="Ch2" type="qsem-Ch2"/>
+   <Atom name="Cq2" type="qsem-Cq2"/>
+   <Atom name="Ch3" type="qsem-Ch3"/>
+   <Atom name="Ch4" type="qsem-Ch4"/>
+   <Atom name="Oq1" type="qsem-Oq1"/>
+   <Atom name="Oq2" type="qsem-Oq2"/>
+   <Bond from="Cat" to="Ch1"/>
+   <Bond from="Hq1" to="Ch2"/>
+   <Bond from="Hq2" to="Ch3"/>
+   <Bond from="Hq3" to="Ch4"/>
+   <Bond from="Cq1" to="Ch1"/>
+   <Bond from="Cq1" to="Ch4"/>
+   <Bond from="Cq1" to="Oq2"/>
+   <Bond from="Ch1" to="Ch2"/>
+   <Bond from="Ch2" to="Cq2"/>
+   <Bond from="Cq2" to="Ch3"/>
+   <Bond from="Cq2" to="Oq1"/>
+   <Bond from="Ch3" to="Ch4"/>
+  </Residue>
+</Residues>

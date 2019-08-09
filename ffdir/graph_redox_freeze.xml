@@ -1,0 +1,58 @@
+<ForceField>
+ <AtomTypes>
+  <Type name="qbzn-Cat" class="Cat" element="C" mass="0.0"/>
+  <Type name="qbzn-Hq1" class="Hq" element="H" mass="0.0"/>
+  <Type name="qbzn-Hq2" class="Hq" element="H" mass="0.0"/>
+  <Type name="qbzn-Hq3" class="Hq" element="H" mass="0.0"/>
+  <Type name="qbzn-Cq1" class="Cq" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch1" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch2" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Cq2" class="Cq" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch3" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Ch4" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qbzn-Oq1" class="Oq" element="O" mass="0.0"/>
+  <Type name="qbzn-Oq2" class="Oq" element="O" mass="0.0"/>
+  <!-- end benzoquinone   -->
+  <!--Type name="qsem-Cat" class="Cat" element="C" mass="0.0"/>
+  <Type name="qsem-Hq1" class="Hq" element="H" mass="0.0"/>
+  <Type name="qsem-Hq2" class="Hq" element="H" mass="0.0"/>
+  <Type name="qsem-Hq3" class="Hq" element="H" mass="0.0"/>
+  <Type name="qsem-Cq1" class="Cq" element="C" mass="0.0"/>
+  <Type name="qsem-Ch1" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qsem-Ch2" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qsem-Cq2" class="Cq" element="C" mass="0.0"/>
+  <Type name="qsem-Ch3" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qsem-Ch4" class="Cqh" element="C" mass="0.0"/>
+  <Type name="qsem-Oq1" class="Oq" element="O" mass="0.0"/>
+  <Type name="qsem-Oq2" class="Oq" element="O" mass="0.0"/-->
+  <!-- end semi-benzoquinone   -->
+ </AtomTypes>
+ <Residues>
+  <Residue name="qbzn">
+   <Atom name="Cat" type="qbzn-Cat"/>
+   <Atom name="Hq1" type="qbzn-Hq1"/>
+   <Atom name="Hq2" type="qbzn-Hq2"/>
+   <Atom name="Hq3" type="qbzn-Hq3"/>
+   <Atom name="Cq1" type="qbzn-Cq1"/>
+   <Atom name="Ch1" type="qbzn-Ch1"/>
+   <Atom name="Ch2" type="qbzn-Ch2"/>
+   <Atom name="Cq2" type="qbzn-Cq2"/>
+   <Atom name="Ch3" type="qbzn-Ch3"/>
+   <Atom name="Ch4" type="qbzn-Ch4"/>
+   <Atom name="Oq1" type="qbzn-Oq1"/>
+   <Atom name="Oq2" type="qbzn-Oq2"/>
+   <Bond from="0" to="5"/>
+   <Bond from="1" to="6"/>
+   <Bond from="2" to="8"/>
+   <Bond from="3" to="9"/>
+   <Bond from="4" to="5"/>
+   <Bond from="4" to="9"/>
+   <Bond from="4" to="11"/>
+   <Bond from="5" to="6"/>
+   <Bond from="6" to="7"/>
+   <Bond from="7" to="8"/>
+   <Bond from="7" to="10"/>
+   <Bond from="8" to="9"/>
+  </Residue>
+ </Residues>
+</ForceField>
