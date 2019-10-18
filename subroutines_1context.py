@@ -20,7 +20,7 @@ import shutil
 class MDsimulation:
     #def __init__(self, read_pdb, index, temperature, ResidueConnectivityFiles, FF_files):
     #def __init__(self, read_pdb, temperature, ntimestep_write, platform_name, ResidueConnectivityFiles, FF_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol):
-    def __init__(self, read_pdb, temperature, ntimestep_write, platform_name, ResidueConnectivityFiles, FF_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol, read_redox_xml):
+    def __init__(self, read_pdb, temperature, ntimestep_write, platform_name, ResidueConnectivityFiles, FF_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol, read_redox_xml, redox_states = [-2, -1, 0]):
     #def __init__(self, read_pdb, temperature, ResidueConnectivityFiles, FF_files, FF_Efield_files):
         strdir = '../'
         pdb = PDBFile( strdir + read_pdb)
@@ -80,12 +80,8 @@ class MDsimulation:
         #platform = Platform.getPlatformByName('CUDA')
         #idx=self.index.split(",")
         #properties = {'DeviceIndex': idx[0], 'Precision': 'mixed'}
-        #properties = {'DeviceIndex': self.index, 'Precision': 'single'}
-        #properties = {'DeviceIndex': self.index, 'Precision': 'mixed'}
-        platform = Platform.getPlatformByName(platform_name)
-        #properties = {'OpenCLPrecision': 'mixed'}
-        #properties = {'OpenCLPrecision': 'double','OpenCLDeviceIndex': self.index}
         #self.simmd = Simulation(modeller.topology, self.system, integ_md, platform, properties)
+        platform = Platform.getPlatformByName(platform_name)
         self.simmd = Simulation(modeller.topology, self.system, integ_md, platform)
         self.simmd.context.setPositions(modeller.positions)
 
@@ -111,48 +107,61 @@ class MDsimulation:
             for res_i in range(len(res_arr)):
                 res_name = pdbresidues_new[res_i]
                 self.atomlist = []
+                #for res in pdb.topology.residues():
                 for res in self.simmd.topology.residues():
                     if res.name == res_name:
                         for atom in res._atoms:
-                            (q_i, sig, eps) = self.nbondedForce.getParticleParameters(int(atom.index))
+                            #(q_i, sig, eps) = self.nbondedForce.getParticleParameters(int(atom.index))
                             self.atomlist.append( int(atom.index) )
                 self.solvent_list.extend(deepcopy(self.atomlist))
 
+        #print(self.solvent_list, len(self.solvent_list))
         # get residue names of electrodes from .pdb
-        grp_residues = [ res.name for res in pdb.topology.residues() if (res.name == grp_neu or res.name == functional_grp)]
         #grp_residues = [ res.name for res in pdb.topology.residues() if "grp" in res.name]
-        redox_residues = [ res.name for res in pdb.topology.residues() if (res.name == redox_mol)]
+        grp_residues = [ res.name for res in pdb.topology.residues() if (res.name == grp_neu or res.name == functional_grp)]
         print("electrode_list:", grp_residues)
-        print("redox_list:", redox_residues, len(redox_residues))
+        redox_residues = [ res.name for res in pdb.topology.residues() if (res.name == redox_mol)]
+        if len(redox_residues) == 0:
+            pass
+            #redox_atomindices_cathode = []
+            #redox_atomindices_anode = []
+            #self.electrode = Electrode_types()
+            #self.electrode.atomidx(pdb, self.nbondedForce, grp_residues, grp_c, grp_d, grp_neu, functional_grp)
+        elif 0 < len(redox_residues) :
+            redox_atomtypes_list = list(dict.fromkeys([ atom.name for res in pdb.topology.residues() if (res.name == redox_mol) for atom in res._atoms ]))
+            redox_chainID_list = list(dict.fromkeys([ res.chain.index for res in pdb.topology.residues() if (res.name == redox_mol) ]))
+            self.Nredox_cathode = len([ res.name for res in pdb.topology.residues() if (res.name == redox_mol and res.chain.index == redox_chainID_list[0])])
+            print("redox_list:", redox_residues, len(redox_residues))
+            redoxstate_charges_dictionary = get_charges_of_redox_states(read_redox_xml, redox_states, redox_atomtypes_list)
+            #self.redox_molecules_atomindices = get_atomindex_redox_molecules(pdb, redox_mol)
+            self.redox_molecules_atomindices = get_atomindex_redox_molecules(self.simmd.topology.residues(), redox_mol)
+            redox_atomindices_cathode = self.redox_molecules_atomindices[:self.Nredox_cathode] 
+            redox_atomindices_anode = self.redox_molecules_atomindices[self.Nredox_cathode:]
+            print(redox_atomindices_cathode, len(redox_atomindices_cathode))
+            print(redox_atomindices_anode, len(redox_atomindices_anode))
+            self.redox_molecules_atomcharges, self.redox_molecules_redoxstates = get_charges_redoxstates_from_atomindex(self.redox_molecules_atomindices, self.nbondedForce)
+            self.redox_molecules = []
+            for i_redox in range(len(redox_residues)):
+                self.redox_mol_i = Redox_class(redoxstate_charges_dictionary, self.redox_molecules_atomindices[i_redox], self.redox_molecules_redoxstates[i_redox])
+                self.redox_molecules.append(self.redox_mol_i)
 
-        # get atom indices and charges  of all redox molecules
-        redox = Redox_molecules(read_redox_xml)
-        redox.charge_index_lists(self, redox_residues)
-        self.redoxcharges_state1_cathode = redox.charges_state1_cathode
-        self.redoxcharges_state2_cathode = redox.charges_state2_cathode
-        self.redoxcharges_state1_anode = redox.charges_state1_anode
-        self.redoxcharges_state2_anode = redox.charges_state2_anode
-        self.redox_atomindices_cathode = redox.atomindices_cathode
-        self.redox_atomindices_anode = redox.atomindices_anode
+            #self.electrode = Electrode_types(redox_atomindices_cathode, redox_atomindices_anode)
+            #self.electrode.atomidx( pdb, self.nbondedForce, grp_residues, grp_c, grp_d, grp_neu, functional_grp)
 
         # get atom indices of all electrodes
-        electrode = Electrode_types(self.redox_atomindices_cathode, self.redox_atomindices_anode)
-        self.electrode_1_arr, self.electrode_2_arr = electrode.atomidx(self, grp_residues, grp_c, grp_d, grp_neu, functional_grp)
-        self.c562_1 = electrode.c562_1
-        self.c562_2 = electrode.c562_2
-        self.grp_dummy = electrode.dummy
-        self.graph = deepcopy(electrode.cathode)
-        self.graph.extend(deepcopy(electrode.dummy[:int(len(electrode.dummy)/2)]))
-        self.graph.extend(deepcopy(electrode.anode))
-        self.graph.extend(deepcopy(electrode.dummy[int(len(electrode.dummy)/2): len(electrode.dummy)]))
-        self.grpc = deepcopy(electrode.cathode)
-        self.grpc.extend(deepcopy(electrode.anode))
-        self.grph = deepcopy(electrode.neutral)
-        print("sheets",len(self.grpc), len(self.graph), len(self.grph), len(self.grp_dummy))
-
-        #self.graph_arr = deepcopy(electrode.grp_atomindices)
-        #self.electrode_1_arr = deepcopy(self.electrode_1_arrays)
-        #self.electrode_2_arr = deepcopy(self.electrode_2_arrays)
+        #print(redox_atomindices_cathode, redox_atomindices_anode)
+        #self.electrode = Electrode_types(redox_atomindices_cathode, redox_atomindices_anode)
+        #self.electrode.atomidx( pdb, self.nbondedForce, grp_residues, grp_c, grp_d, grp_neu, functional_grp)
+        self.electrode = Electrode_types()
+        self.electrode.atomidx(pdb, self.nbondedForce, grp_residues, grp_c, grp_d, grp_neu, functional_grp)
+        self.graph = deepcopy(self.electrode.grpc_cathode)
+        self.graph.extend(deepcopy(self.electrode.dummy[:int(len(self.electrode.dummy)/2)]))
+        self.graph.extend(deepcopy(self.electrode.grpc_anode))
+        self.graph.extend(deepcopy(self.electrode.dummy[int(len(self.electrode.dummy)/2): len(self.electrode.dummy)]))
+        self.grpc = deepcopy(self.electrode.grpc_cathode)
+        self.grpc.extend(deepcopy(self.electrode.grpc_anode))
+        print(len(self.graph))
+        #print("sheets",len(self.grpc), len(self.graph), len(self.grph), len(self.grp_dummy))
 
 	# write initial pdb with drude oscillators
         state = self.simmd.context.getState(getEnergy=True,getForces=True,getVelocities=True,getPositions=True)	
@@ -394,9 +403,10 @@ class MDsimulation:
     def ConvergedCharge(self, Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol):
         rms = 0.0
         flag_conv = -1
-        ind_Q = get_Efield(self.solvent_list)
-        ana_Q_Cat, ana_Q_An = ind_Q.induced_q( z_L, z_R, cell_dist, self, positions, Ngraphene_atoms, self.graph, area_atom, Voltage, Lgap, conv)
-        print('Analytical Q_Cat, Q_An :', ana_Q_Cat, ana_Q_An)
+        self.ana_Q_Cat, self.ana_Q_An = get_induced_q_analytical(z_L, z_R, cell_dist, self.nbondedForce, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, self.solvent_list)
+        #ind_Q = get_Efield(self.solvent_list)
+        #self.ana_Q_Cat, self.ana_Q_An = ind_Q.induced_q( z_L, z_R, cell_dist, self.nbondedForce, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv)
+        print('Analytical Q_Cat, Q_An :', self.ana_Q_Cat, self.ana_Q_An)
 
         for i_step in range(Niter_max):
             print("charge iteration", i_step)
@@ -444,9 +454,9 @@ class MDsimulation:
             #self.nbondedForce_Efield.updateParametersInContext(self.simEfield.context)
             self.nbondedForce.updateParametersInContext(self.simmd.context)
 
-            sumq_cathode, sumq_anode = self.FinalCharge(Ngraphene_atoms, self.graph, args, i, chargesFile)
-            print( 'total charge on graphene (cathode,anode):', sumq_cathode, sumq_anode )
-            self.Scale_charge( Ngraphene_atoms, self.graph, ana_Q_Cat, ana_Q_An, sumq_cathode, sumq_anode )
+            self.sumq_cathode, self.sumq_anode = self.FinalCharge(Ngraphene_atoms, graph, args, i, chargesFile)
+            print( 'total charge on graphene (cathode,anode):', self.sumq_cathode, self.sumq_anode )
+            self.Scale_charge( Ngraphene_atoms, graph, self.ana_Q_Cat, self.ana_Q_An, self.sumq_cathode, self.sumq_anode )
             #state = self.simmd.context.getState(getEnergy=True,getForces=True,getVelocities=True,getPositions=True)
             nbondedForce_PE_new = self.simmd.context.getState(getEnergy=True, groups=2**5).getPotentialEnergy()
             print('electrostatic E:', nbondedForce_PE_old, nbondedForce_PE_new)
@@ -463,6 +473,61 @@ class MDsimulation:
             print("Warning:  Electrode charges did not converge!! rms: %f" % (rms))
         else:
             print("Steps to converge: " + str(flag_conv + 1))
+
+
+#    def ConvergedCharge(self, Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, tol):
+#        rms = 0.0
+#        flag_conv = -1
+#        for i_step in range(Niter_max):
+#            print("charge iteration", i_step)
+#
+#            state = self.simmd.context.getState(getEnergy=True,getForces=True,getVelocities=True,getPositions=True)
+#            for j in range(self.system.getNumForces()):
+#                f = self.system.getForce(j)
+#                print(type(f), str(self.simmd.context.getState(getEnergy=True, groups=2**j).getPotentialEnergy()))
+##            state2 = self.simEfield.context.getState(getEnergy=True,getForces=True,getPositions=True)
+##            for j in range(self.system_Efield.getNumForces()):
+##                    f = self.system_Efield.getForce(j)
+##                    print(type(f), str(self.simEfield.context.getState(getEnergy=True, groups=2**j).getPotentialEnergy()))
+##
+##            forces = state2.getForces()
+#            forces = state.getForces()
+#            #positions= state.getPositions()
+#            for i_atom in range(Ngraphene_atoms):
+#                    index = graph[i_atom]
+#                    #(q_i_old, sig, eps) = self.nbondedForce_Efield.getParticleParameters(index)
+#                    (q_i_old, sig, eps) = self.nbondedForce.getParticleParameters(index)
+#                    q_i_old = q_i_old
+#                    E_z = ( forces[index][2]._value / q_i_old._value ) if q_i_old._value != 0 else 0
+#                    #E_z = ( forces[index][2]._value / q_i_old._value ) if abs(q_i_old._value) > 1e-5 else 0.
+#                    E_i_external = E_z
+#                    #print(i_atom, area_atom, E_i_external, Lgap, forces[index])
+#
+#                    # when we switch to atomic units on the right, sigma/2*epsilon0 becomes 4*pi*sigma/2 , since 4*pi*epsilon0=1 in a.u.
+#                    if i_atom < Ngraphene_atoms / 2:
+#                        q_i = 2.0 / ( 4.0 * 3.14159265 ) * area_atom * (Voltage / Lgap + E_i_external) * conv
+#                    else:  # anode
+#                        q_i = -2.0 / ( 4.0 * 3.14159265 ) * area_atom * (Voltage / Lgap + E_i_external) * conv
+#
+#                    # Make sure calculated charge isn't crazy
+#                    if abs(q_i) > q_max:
+#                        # this shouldn't happen.  If this code is run, we might have a problem
+#                        # for now, just don't use this new charge
+#                        q_i = q_i_old._value
+#                        print("ERROR: q_i > q_max: {:f} > {:f}".format(q_i, q_max))
+#
+#                    #self.nbondedForce_Efield.setParticleParameters(index, q_i, sig, eps)
+#                    self.nbondedForce.setParticleParameters(index, q_i, sig, eps)
+#                    rms += (q_i - q_i_old._value)**2
+#
+#            #self.nbondedForce_Efield.updateParametersInContext(self.simEfield.context)
+#            self.nbondedForce.updateParametersInContext(self.simmd.context)
+#
+#    # warn if not converged
+#        if flag_conv == -1:
+#            print("Warning:  Electrode charges did not converge!! rms: %f" % (rms))
+#        else:
+#            print("Steps to converge: " + str(flag_conv + 1))
 
     def FinalCharge(self, Ngraphene_atoms, graph, args, i, chargesFile):
         sumq_cathode=0
@@ -481,7 +546,6 @@ class MDsimulation:
                 sumq_cathode += q_i._value
             else:
                 # print charge on one representative atom for debugging fluctuations
-                #if i_atom == Ngraphene_atoms/2 + 100:
                 #if i_atom == Ngraphene_atoms/2 + 100:
                 #    print('index, charge, sum',index, q_i, sumq_anode )
                 sumq_anode += q_i._value
@@ -519,12 +583,10 @@ class MDsimulation:
             (q_i_num, sig, eps) = self.nbondedForce.getParticleParameters(index)
             if i_atom < Ngraphene_atoms / 2:
                 q_i = q_i_num * (ana_Q_Cat/ sumq_cathode) if abs(sumq_cathode) != 0 else q_i_num *0.
-                #q_i = q_i_num * (ana_Q_Cat/ sumq_cathode) if abs(sumq_cathode) > 1e-4 else q_i_num *0.
                 #q_i = q_i_num * ((Q_Cat_ind + sum_Qi_cat)/ sumq_cathode)
                 Q_cat_scale += q_i._value
             else:  # anode
                 q_i = q_i_num * (ana_Q_An/ sumq_anode) if abs(sumq_anode) != 0 else q_i_num *0.
-                #q_i = q_i_num * (ana_Q_An/ sumq_anode) if abs(sumq_anode) > 1e-4 else q_i_num *0.
                 #q_i = q_i_num * ((Q_An_ind + sum_Qi_an)/ sumq_anode)
                 Q_an_scale += q_i._value
             #self.nbondedForce_Efield.setParticleParameters(index, q_i, sig, eps)
@@ -545,98 +607,70 @@ class MDsimulation:
 
 
     def Charge_solver(self, Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol):
-
-        self.ConvergedCharge( Niter_max, Ngraphene_atoms, self.graph, area_atom, Voltage, Lgap, conv, q_max, tol )
-        print(len(self.graph), self.graph[0], self.graph[int(len(self.graph)/2)])
-        sumq_cathode_current, sumq_anode_current = self.FinalCharge(Ngraphene_atoms, self.graph, args, i, chargesFile)
-        print( 'total charge on graphene (cathode,anode):', sumq_cathode_current, sumq_anode_current )
+        print("graph", len(graph))
+        self.ConvergedCharge( Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, tol )
+        self.sumq_cathode, self.sumq_anode = self.FinalCharge(Ngraphene_atoms, self.graph, args, i, chargesFile)
+        print( 'total charge on graphene (cathode,anode):', self.sumq_cathode, self.sumq_anode )
         #print('Charges converged, Energies from full Force Field')
         #self.PrintFinalEnergies()
-        ind_Q = get_Efield(self.solvent_list)
-        ana_Q_Cat_current, ana_Q_An_current = ind_Q.induced_q( z_L, z_R, cell_dist, self, positions, Ngraphene_atoms, self.graph, area_atom, Voltage, Lgap, conv)
-        print('Analytical Q_Cat, Q_An :', ana_Q_Cat_current, ana_Q_An_current)
-        self.Scale_charge( Ngraphene_atoms, self.graph, ana_Q_Cat_current, ana_Q_An_current, sumq_cathode_current, sumq_anode_current )
+        self.ana_Q_Cat, self.ana_Q_An = get_induced_q_analytical(z_L, z_R, cell_dist, self.nbondedForce, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, self.solvent_list)
+        #ind_Q = get_Efield(self.solvent_list)
+        #self.ana_Q_Cat, self.ana_Q_An = ind_Q.induced_q( z_L, z_R, cell_dist, self.nbondedForce, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv)
 
-    def Swap_redox_ff(self, redox_atomindex, redox_charges_f, redox_charges_i, ntrials, naccept, Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, redox_charges_i_current, tol ):
-        ntrials += 1
-        print('Starting electron transfer...')
-        state = self.simmd.context.getState(getEnergy=True,getForces=True,getPositions=True)
-        PE_i_old = state.getPotentialEnergy()
-        current_redox_charges_array = [round(sum(i_mol)) for i_mol in redox_charges_i_current]
-        print('current charge array for redox molecules', current_redox_charges_array)
+        print('Analytical Q_Cat, Q_An :', self.ana_Q_Cat, self.ana_Q_An)
+        self.Scale_charge( Ngraphene_atoms, graph, self.ana_Q_Cat, self.ana_Q_An, self.sumq_cathode, self.sumq_anode )
 
-        # save charges on graphene before redox switch  
-        charges_graph_state1_bak = [] 
+    def MonteCarlo_redox(self, ntrials, naccept, Ngraphene_atoms, Niter_max, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol, redox_mol_i, redox_states, ET_i, PE_old, E_fermi, EA_neu, EA_red1):
+
+        print("Starting", ET_i, "at", self.redox_molecules[redox_mol_i].redox_electrode)
+        if self.redox_molecules[redox_mol_i].redox_electrode == "cathode":
+            E_electrode = E_fermi - Voltage/2
+            #E_electrode = E_fermi + Voltage/2
+        if self.redox_molecules[redox_mol_i].redox_electrode == "anode":
+            E_electrode = E_fermi + Voltage/2
+            #E_electrode = -E_fermi - Voltage/2
+        # save charges on graphene before redox
+        self.backup_charges_on_graph = []
         for i_grp_atom in range(Ngraphene_atoms):
             index = graph[i_grp_atom]
             (q_i_old, sig, eps) = self.nbondedForce.getParticleParameters(index)
-            charges_graph_state1_bak.append(q_i_old._value)
+            self.backup_charges_on_graph.append(q_i_old._value)
 
-        i_redox_random = random.randint(0, len(redox_charges_f)-1)
-        print("i_redox_mol", i_redox_random)
-        charges_i_redox_state_1_bak = redox_charges_i[i_redox_random]
-        charges_i_redox_state_1_current = redox_charges_i_current[i_redox_random]
-        charges_i_redox_state_2 = redox_charges_f[i_redox_random]
-        tot_charges_i_redox_state_1_bak = round(sum(charges_i_redox_state_1_bak))
-        tot_charges_i_redox_state_1_current = round(sum(charges_i_redox_state_1_current))
-        tot_charges_i_redox_state_2 = round(sum(charges_i_redox_state_2))
-        #print("total charge of redox i", tot_charges_i_redox_state_1_bak, tot_charges_i_redox_state_1_current, tot_charges_i_redox_state_2, delta_tot_charges_i_redox ) 
-        atomlist_i_redox_state_2 = redox_atomindex[i_redox_random]
+        redox_state_temp = 0.
+        for i_atom in range(len(self.redox_molecules[redox_mol_i].atomindex)):
+            index = self.redox_molecules[redox_mol_i].atomindex[i_atom]
+            (q_state_i, sig, eps) = self.nbondedForce.getParticleParameters( int(index))
+            redox_state_temp += q_state_i._value
+        redox_state_temp = round(redox_state_temp)
+        print("temperary redox state", redox_state_temp)
 
-        # save charges on redox i before redox switch  
-        charges_i_redox_state1_current = []
-        if tot_charges_i_redox_state_1_current == tot_charges_i_redox_state_1_bak:
-        #if tot_charges_i_redox_state_1_current == 0 :
-            for i_atom in range(len(atomlist_i_redox_state_2)):
-                index = atomlist_i_redox_state_2[i_atom]
-                (q_i_state1_old, sig, eps) = self.nbondedForce.getParticleParameters( int(index))
-                q_i_state2 = charges_i_redox_state_2[i_atom]
-                charges_i_redox_state1_current.append(float(q_i_state1_old._value))
-                self.nbondedForce.setParticleParameters(index, q_i_state2, sig, eps)
+        ntrials += 1
+        self.nbondedForce.updateParametersInContext(self.simmd.context)
+        self.ConvergedCharge( Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol )
+        sumq_cathode_current, sumq_anode_current = self.FinalCharge(Ngraphene_atoms, graph, args, i, chargesFile)
+        print( 'total charge on graphene (cathode,anode):', sumq_cathode_current, sumq_anode_current )
+        #self.Charge_solver( Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol )
 
-            print("charge_before_redox ", tot_charges_i_redox_state_1_current, "reduction")
-            self.nbondedForce.updateParametersInContext(self.simmd.context)
-            self.ConvergedCharge( Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol )
-            sumq_cathode_current, sumq_anode_current = self.FinalCharge(Ngraphene_atoms, self.graph, args, i, chargesFile)
-            print( 'total charge on graphene (cathode,anode):', sumq_cathode_current, sumq_anode_current )
+        state_new_redox = self.simmd.context.getState(getEnergy=True,getForces=True,getPositions=True)
+        PE_new = state_new_redox.getPotentialEnergy()
+        print("PE before and after MC move ", PE_old, PE_new._value)
 
-            redox_state2 = self.simmd.context.getState(getEnergy=True,getForces=True,getPositions=True)
-            PE_i_new = redox_state2.getPotentialEnergy()
-            print("PE before and after MC move ", PE_i_old._value, PE_i_new._value)
-            delta_E_intra = 0
-            w = (-Voltage/2) + 186.4 + (PE_i_new._value - PE_i_old._value - delta_E_intra)
+        # it is important to substract out the energy differece of gas phase reduced and oxidized molecules.
+        # in this case, we have excluded all intramolecular nonbonded interactions and used the same bond, angle,dihedral force constant for both redox states. so this term is zero, but in general we need to subtract these terms.
+        delta_E_intra = 0
+        if ET_i == 'oxidation':
+            # EA_neu = Mol(0) - Mol(-1)
+            # EA_red1 = Mol(-1) - Mol(-2)
+            if redox_state_temp == 0:
+                w = (EA_neu) + E_electrode  + (PE_new._value - PE_old - delta_E_intra)
+            if redox_state_temp == -1:
+                w = (EA_red1) + E_electrode  + (PE_new._value - PE_old - delta_E_intra)
+        if ET_i == 'reduction':
+            if redox_state_temp == -1:
+                w = (-EA_neu) - E_electrode  + (PE_new._value - PE_old - delta_E_intra)
+            if redox_state_temp == -2:
+                w = (-EA_red1) - E_electrode  + (PE_new._value - PE_old - delta_E_intra)
 
-        if tot_charges_i_redox_state_1_current != tot_charges_i_redox_state_1_bak:
-        #elif tot_charges_i_redox_state_1_current == -1 :
-            for i_atom in range(len(atomlist_i_redox_state_2)):
-                index = atomlist_i_redox_state_2[i_atom]
-                (q_i_state1_old, sig, eps) = self.nbondedForce.getParticleParameters( int(index))
-                q_i_state1_bak = charges_i_redox_state_1_bak[i_atom]
-                charges_i_redox_state1_current.append(float(q_i_state1_old._value))
-                self.nbondedForce.setParticleParameters(index, q_i_state1_bak, sig, eps)
-
-            print("charge_before_redox ", tot_charges_i_redox_state_1_current, "oxidation")
-            self.nbondedForce.updateParametersInContext(self.simmd.context)
-            #self.ConvergedCharge( Niter_max, Ngraphene_atoms, self.graph, area_atom, Voltage, Lgap, conv, q_max, tol )
-            self.ConvergedCharge( Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol )
-            sumq_cathode_current, sumq_anode_current = self.FinalCharge(Ngraphene_atoms, self.graph, args, i, chargesFile)
-            print( 'total charge on graphene (cathode,anode):', sumq_cathode_current, sumq_anode_current )
-
-            redox_state2 = self.simmd.context.getState(getEnergy=True,getForces=True,getPositions=True)
-            PE_i_new = redox_state2.getPotentialEnergy()
-            print("PE before and after MC move ", PE_i_old._value, PE_i_new._value)
-
-            # it is important to substract out the energy differece of gas phase reduced and oxidized molecules.
-            # in this case, we have excluded all intramolecular nonbonded interactions and used the same bond, angle,dihedral force constant for both redox states. so this term is zero, but in general we need to subtract these terms.
-            delta_E_intra = 0 
-            w = (Voltage/2 - 186.4) + (PE_i_new._value - PE_i_old._value - delta_E_intra)
-
-        #self.nbondedForce.updateParametersInContext(self.simmd.context)
-        #self.Charge_solver( Niter_max, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions )
-        #redox_state2 = self.simmd.context.getState(getEnergy=True,getForces=True,getPositions=True)
-        #PE_i_new = redox_state2.getPotentialEnergy()
-        #print("PE before and after MC move ", PE_i_old._value, PE_i_new._value)
-        #w = (-Voltage/2) + 186.4 + (PE_i_new._value - PE_i_old._value)
         print("dE, exp(-dE/RT) ", w, numpy.exp(-(w)))
         if ( w < 0. or random.uniform(0.0,1.0) < numpy.exp(-(w)) ):
             naccept += 1
@@ -645,18 +679,20 @@ class MDsimulation:
             # switch graphene charges back to previous state
             for i_grp_atom in range(Ngraphene_atoms):
                 index = graph[i_grp_atom]
-                (q_i_new, sig, eps) = self.nbondedForce.getParticleParameters(index)
-                q_i_old_grp = charges_graph_state1_bak[i_grp_atom]
-                self.nbondedForce.setParticleParameters(index, q_i_old_grp, sig, eps)
+                (q_grp_new, sig, eps) = self.nbondedForce.getParticleParameters(index)
+                q_grp_bak = self.backup_charges_on_graph[i_grp_atom]
+                self.nbondedForce.setParticleParameters(index, q_grp_bak, sig, eps)
             self.nbondedForce.updateParametersInContext(self.simmd.context)
-            
-            # switch redox charges back to previous state
-            for i_atom in range(len(charges_i_redox_state1_current)):
-                index = atomlist_i_redox_state_2[i_atom]
-                (q_i_state2_new, sig, eps) = self.nbondedForce.getParticleParameters( int(index))
-                q_i_state1 = charges_i_redox_state1_current[i_atom]
-                self.nbondedForce.setParticleParameters(index, q_i_state1, sig, eps)
-            self.nbondedForce.updateParametersInContext(self.simmd.context)
+
+            # go back to previous redox state 
+            if ET_i == 'oxidation':
+                print(self.redox_molecules_redoxstates[redox_mol_i], round(redox_state_temp), "reduce back")
+                self.redox_molecules[redox_mol_i].reduction(self.nbondedForce, redox_states, round(redox_state_temp), redox_mol_i, self.Nredox_cathode)
+                self.nbondedForce.updateParametersInContext(self.simmd.context)
+            if ET_i == 'reduction':
+                print(self.redox_molecules_redoxstates[redox_mol_i], round(redox_state_temp), "oxidize back")
+                self.redox_molecules[redox_mol_i].oxidation(self.nbondedForce, redox_states, round(redox_state_temp), redox_mol_i, self.Nredox_cathode)
+                self.nbondedForce.updateParametersInContext(self.simmd.context)
 
         print("Accept ratio for redox between states 1 and 2: ", float(naccept)/float(ntrials))
         if (naccept < 0.25*ntrials) :
@@ -666,209 +702,286 @@ class MDsimulation:
             ntrials = 0
             naccept = 0
 
-        #sumq_cathode_f, sumq_anode_f = self.FinalCharge(Ngraphene_atoms, self.graph, args, i, chargesFile)
-        #print( 'total charge on cathode and anode after e-transfer:', sumq_cathode_f, sumq_anode_f )
-        charges_i_redox_state1_new = []
-        for i_atom in range(len(charges_i_redox_state1_current)):
-            index = atomlist_i_redox_state_2[i_atom]
-            (q_i_new, sig, eps) = self.nbondedForce.getParticleParameters( int(index))
-            charges_i_redox_state1_new.append( q_i_new._value)
 
-        print('total_charge_i_redox_mol_after_switch', round(sum( charges_i_redox_state1_new )) )
-        redox_charges_i_current[i_redox_random] = charges_i_redox_state1_new
-        final_redox_charges_array = [round(sum(i_mol)) for i_mol in redox_charges_i_current]
-        print('updated charge array for redox molecules', final_redox_charges_array)
-        N_etransfer = abs(round(sum(final_redox_charges_array)))
-        list_i_redox_et = [ i for i in range(len(final_redox_charges_array)) if final_redox_charges_array[i] != 0 ]
-        print("indices of molecules oxidized or reduced: ", list_i_redox_et )
-        print("number of molecules oxidized or reduced: ", N_etransfer)
+        #redox_state_update = 0.
+        #for i_atom in range(len(self.redox_molecules[redox_mol_i].atomindex)):
+        #    index = self.redox_molecules[redox_mol_i].atomindex[i_atom]
+        #    (q_final, sig, eps) = self.nbondedForce.getParticleParameters( int(index))
+        #    redox_state_update += q_final._value
+        #print(self.redox_molecules_redoxstates[redox_mol_i], round(redox_state_temp), round(redox_state_update))
 
-        return redox_charges_i_current
-    
-            
-class Redox_molecules:
-    def __init__(self, read_redox_xml):
-        self.read_redox_xml = read_redox_xml
-        chargeclass_list = []
-        atomclass_list = []
-        atomcharge_list = []
-        atomtype_list = []
-        if len(self.read_redox_xml) == 0:
-            pass
-        elif 0 < len(self.read_redox_xml):
-            infile = open(self.read_redox_xml,"r")
-            dummy_lines = infile.readlines()
-            for i in range(len(dummy_lines)):
-                line_i = dummy_lines[i].split()
-                for j in line_i:
-                    if "charge" in j:
-                        line_i_charge = line_i[1].split()
-                        class_j = line_i_charge[0].split('"')
-                        charge_j = j.split('"')
-                        chargeclass_list.append(class_j[1])
-                        atomcharge_list.append(float(charge_j[1]))
-                    if "element" in j:
-                        line_i_element = line_i[1].split()
-                        line_i_class = line_i[2].split()
-                        element_j_old = line_i_element[0].split('-')
-                        class_j_element = line_i_class[0].split('"')
-                        element_j = element_j_old[1].replace('"','')
-                        atomclass_list.append(class_j_element[1])
-                        atomtype_list.append(element_j)
-            self.atomclass_charges = dict(zip(chargeclass_list, atomcharge_list))
-            self.atomtype_classes = dict(zip(atomtype_list, atomclass_list))
-            infile.close()
 
-        self.atomindices_cathode = []
-        self.atomindices_anode = []
-        self.charges_state1_cathode = []
-        self.charges_state1_anode = []
-        self.charges_state2_cathode = []
-        self.charges_state2_anode = []
-    def charge_index_lists(self, sim, redox_residues):
-        if len(redox_residues) == 0 and len(self.read_redox_xml) == 0:
-            pass
-        elif 0 < len(redox_residues) and 0 < len(self.read_redox_xml):
-            redox_types = list(dict.fromkeys(redox_residues))
-            for redox_res_i in range(len(redox_types)):
-                redox_type_i = redox_types[redox_res_i]
-                self.chain_idx = -1
-                self.redox_mol = []
-                for redox_res in sim.simmd.topology.residues():
-                    self.i_mol_atomidx_cathode = []
-                    self.i_mol_atomidx_anode = []
-                    self.i_mol_charges_state1_cathode = []
-                    self.i_mol_charges_state1_anode = []
-                    self.i_mol_charges_state2_cathode = []
-                    self.i_mol_charges_state2_anode = []
-                    if (redox_res.name == redox_type_i):
-                        #for atom in redox_res._atoms:
-                        #    (q_i, sig, eps) = self.nbondedForce.getParticleParameters(int(atom.index))
-                        #    self.redox_mol.append( int(atom.index) )
-                        if self.chain_idx == -1 or self.chain_idx == redox_res.chain.index:
-                            self.chain_idx = redox_res.chain.index
-                            #print(redox_res.name, redox_res.id, redox_res.chain.index, "redox_electrode_1")
-                            for atom in redox_res._atoms:
-                                (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
-                                self.i_mol_charges_state1_cathode.append( float(q_i._value) )
-                                self.i_mol_atomidx_cathode.append( int(atom.index) )
-                                atomclass_new = self.atomtype_classes[atom.name]
-                                atomcharge_new = self.atomclass_charges[atomclass_new]
-                                self.i_mol_charges_state2_cathode.append( atomcharge_new )
-                            self.atomindices_cathode.append(self.i_mol_atomidx_cathode)
-                            self.charges_state1_cathode.append(self.i_mol_charges_state1_cathode)
-                            self.charges_state2_cathode.append(self.i_mol_charges_state2_cathode)
-                        elif redox_res.chain.index != self.chain_idx:
-                            #print(redox_res.name, redox_res.id, redox_res.chain.index, "redox_electrode_2")
-                            for atom in redox_res._atoms:
-                                (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
-                                self.i_mol_charges_state1_anode.append( float(q_i._value) )
-                                self.i_mol_atomidx_anode.append( int(atom.index) )
-                                atomclass_new = self.atomtype_classes[atom.name]
-                                atomcharge_new = self.atomclass_charges[atomclass_new]
-                                self.i_mol_charges_state2_anode.append( atomcharge_new )
-                            self.atomindices_anode.append(self.i_mol_atomidx_anode)
-                            self.charges_state1_anode.append(self.i_mol_charges_state1_anode)
-                            self.charges_state2_anode.append(self.i_mol_charges_state2_anode)
-            #self.atomindices_cathode = deepcopy(self.electrode_1_arrays )
-            #self.atomindices_anode = deepcopy(self.electrode_2_arrays)
+
+def find_charges_from_atomtype(read_redox_xml):
+    #self.read_redox_xml = read_redox_xml
+    chargeclass_list = []
+    atomclass_list = []
+    atomcharge_list = []
+    atomtype_list = []
+    if len(read_redox_xml) == 0:
+        pass
+    elif 0 < len(read_redox_xml):
+        infile = open(read_redox_xml,"r")
+        dummy_lines = infile.readlines()
+        for i in range(len(dummy_lines)):
+            line_i = dummy_lines[i].split()
+            for j in line_i:
+                if "charge" in j:
+                    line_i_charge = line_i[1].split()
+                    class_j = line_i_charge[0].split('"')
+                    charge_j = j.split('"')
+                    chargeclass_list.append(class_j[1])
+                    atomcharge_list.append(float(charge_j[1]))
+                if "element" in j:
+                    line_i_element = line_i[1].split()
+                    line_i_class = line_i[2].split()
+                    element_j_old = line_i_element[0].split('-')
+                    class_j_element = line_i_class[0].split('"')
+                    element_j = element_j_old[1].replace('"','')
+                    atomclass_list.append(class_j_element[1])
+                    atomtype_list.append(element_j)
+        atomclass_charges = dict(zip(chargeclass_list, atomcharge_list))
+        atomtype_classes = dict(zip(atomtype_list, atomclass_list))
+        infile.close()
+    return atomtype_classes, atomclass_charges
+
+
+def get_charges_of_redox_states(read_redox_xml, redox_states, redox_atomtypes):
+    dictionary_atomclass_charges = {}
+    dictionary_atomtype_classes = {}
+    dictionary_redoxstates_charges = {}
+    for i_state in range(len(redox_states)):
+        atomtype_classes, atomclass_charges = find_charges_from_atomtype(read_redox_xml[i_state])
+        dictionary_atomtype_classes[redox_states[i_state]] = atomtype_classes
+        dictionary_atomclass_charges[redox_states[i_state]] = atomclass_charges
+        charges_redox_state_i = []
+        for atomname_i in redox_atomtypes:
+            atomclass_state_i = dictionary_atomtype_classes[redox_states[i_state]][atomname_i]
+            atomcharge_state_i = dictionary_atomclass_charges[redox_states[i_state]][atomclass_state_i]
+            charges_redox_state_i.append(atomcharge_state_i)
+        dictionary_redoxstates_charges[redox_states[i_state]] = charges_redox_state_i
+    return dictionary_redoxstates_charges
+
+#def get_atomindex_redox_molecules(pdb, redox_mol):
+def get_atomindex_redox_molecules(simmd_topology, redox_mol):
+    redox_molecules_atomindices = []
+    #chain_idx = -1
+    #for res in pdb.topology.residues():
+    for res in simmd_topology:
+        if (res.name == redox_mol):
+            redox_atomidx = []
+            for atom in res._atoms:
+                redox_atomidx.append(atom.index)
+            redox_molecules_atomindices.append(redox_atomidx)
+            #if chain_idx == -1 or chain_idx == res.chain.index:
+            #    chain_idx = res.chain.index
+            #    print(res.name, res.id, res.chain.index, "redox_electrode_1")
+            #elif res.chain.index != chain_idx:
+            #    chain_idx = res.chain.index
+            #    print(res.name, res.id, res.chain.index, "redox_electrode_2")
+    return redox_molecules_atomindices
+
+def get_charges_redoxstates_from_atomindex(redox_atomindex, nbondedForce):
+    redox_molecules_atomcharges = []
+    redox_molecules_redoxstates = []
+    for res in range(len(redox_atomindex)):
+        redox_idx = redox_atomindex[res]
+        redox_atomidx = []
+        redox_charge = []
+        for atom_idx in redox_idx:
+            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom_idx))
+            redox_charge.append(q_i._value)
+        redox_molecules_atomcharges.append(redox_charge)
+        redox_molecules_redoxstates.append(round(sum(redox_charge)))
+    return redox_molecules_atomcharges, redox_molecules_redoxstates
+
+class Redox_class:
+    def __init__(self, redoxstate_charges_dictionary, i_redox_molecule_atomindices, i_redox_molecule_state):
+        self.redoxstate_charges_dictionary = redoxstate_charges_dictionary
+        self.atomindex = i_redox_molecule_atomindices
+        self.redox_state = i_redox_molecule_state
+
+    def oxidation(self, nbondedForce, redox_states, i_redox_molecule_state, redox_mol_i, Nredox_cathode):
+        if redox_mol_i < Nredox_cathode:
+            self.redox_electrode = "cathode"
+        elif redox_mol_i >= Nredox_cathode:
+            self.redox_electrode = "anode"
+
+        if i_redox_molecule_state < redox_states[-1]:
+            self.flag = 1
+            for i_atom in range(len(self.atomindex)):
+                index = self.atomindex[i_atom]
+                (q_state_i, sig, eps) = nbondedForce.getParticleParameters( int(index))
+                redox_state_f = int(i_redox_molecule_state + 1)
+                q_state_ox = self.redoxstate_charges_dictionary[redox_state_f][i_atom]
+                #print(redox_state_f, q_state_ox)
+                nbondedForce.setParticleParameters(index, q_state_ox, sig, eps)
+        if i_redox_molecule_state == redox_states[-1]:
+            self.flag = 0
+
+
+    def reduction(self, nbondedForce, redox_states, i_redox_molecule_state, redox_mol_i, Nredox_cathode):
+        if redox_mol_i < Nredox_cathode:
+            self.redox_electrode = "cathode"
+        elif redox_mol_i >= Nredox_cathode:
+            self.redox_electrode = "anode"
+
+        if i_redox_molecule_state > redox_states[0]:
+            self.flag = 1
+            for i_atom in range(len(self.atomindex)):
+                index = self.atomindex[i_atom]
+                (q_state_i, sig, eps) = nbondedForce.getParticleParameters( int(index))
+                redox_state_f = int(i_redox_molecule_state - 1)
+                q_state_red = self.redoxstate_charges_dictionary[redox_state_f][i_atom]
+                #print(redox_state_f, q_state_red)
+                nbondedForce.setParticleParameters(index, q_state_red, sig, eps)
+        if i_redox_molecule_state == redox_states[0]:
+            self.flag = 0
+
+
+#class Electrode_types:
+#    def __init__(self, redox_atomindices_cathode = [], redox_atomindices_anode = []):
+#        self.all_cathode_atomindices = deepcopy(redox_atomindices_cathode)
+#        self.all_anode_atomindices = deepcopy(redox_atomindices_anode)
+#
+#    def atomidx(self, simmd_topology, nbondedForce, grp_residues, grp_c, grp_d, grp_neu, functional_grp):
+#        if len(grp_residues) == 0:
+#            pass
+#        elif 0 < len(grp_residues) :
+#            #grp_res_arr = ["res"+str(i) for i in range(len(grp_residues))]
+#            grp_types = list(dict.fromkeys(grp_residues))
+#            for grp_res_i in range(len(grp_types)):
+#                grp_type_i = grp_types[grp_res_i]
+#                self.chain_idx = -1
+#                self.grp_idx = -1
+#                self.res_idx = -1
+#                self.c562_1 = -1
+#                self.c562_2 = -1
+#                self.grpc_cathode = []
+#                self.grpc_anode = []
+#                self.dummy = []
+#                self.neutral = []
+#                self.extra = []
+#                for grp_res in simmd_topology:
+#                    self.grp_list = []
+#                    self.electrode_1_list = []
+#                    self.electrode_2_list = []
+#                    if (grp_res.name == grp_type_i):
+#                        if self.chain_idx == -1 or self.chain_idx == grp_res.chain.index:
+#                            self.chain_idx = grp_res.chain.index
+#                            self.grp_idx = grp_res.index
+#                            print(grp_res.index, grp_res.name, grp_res.id, "electrode_1")
+#                            for atom in grp_res._atoms:
+#                                (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+#                                self.electrode_1_list.append( int(atom.index) )
+#                                self.grp_list.append( int(atom.index) )
+#                            self.all_cathode_atomindices.append(self.electrode_1_list)
+#                        elif grp_res.chain.index != self.chain_idx:
+#                            print(grp_res.index, grp_res.name, grp_res.id, "electrode_2")
+#                            for atom in grp_res._atoms:
+#                                (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+#                                self.electrode_2_list.append( int(atom.index) )
+#                                self.grp_list.append( int(atom.index) )
+#                            self.all_anode_atomindices.append(self.electrode_2_list)
+#
+#                    if grp_res.name == grp_c:
+#                        if self.res_idx == -1:
+#                            self.res_idx = grp_res.index
+#                            for atom in grp_res._atoms:
+#                                self.grpc_cathode.append(int( atom.index))
+#                                if atom.name == "C562":
+#                                    self.c562_1 = atom.index
+#                        elif grp_res.index != self.res_idx:
+#                            for atom in grp_res._atoms:
+#                                self.grpc_anode.append(int( atom.index))
+#                                if atom.name == "C562":
+#                                    self.c562_2 = atom.index
+#                    if grp_res.name == grp_d:
+#                        for atom in grp_res._atoms:
+#                            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+#                            self.dummy.append( int(atom.index) )
+#                    if grp_res.name == grp_neu:
+#                        for atom in grp_res._atoms:
+#                            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+#                            self.neutral.append( int(atom.index) )
+#                    if (grp_res.name == str(functional_grp)) :
+#                        for atom in grp_res._atoms:
+#                            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+#
+#        return self.all_cathode_atomindices, self.all_anode_atomindices
 
 
 class Electrode_types:
-    def __init__(self, redox_atomindices_cathode, redox_atomindices_anode):
-        self.grp_atomindices = []
-        self.electrode_1_arrays = deepcopy(redox_atomindices_cathode)
-        self.electrode_2_arrays = deepcopy(redox_atomindices_anode)
+    def __init__(self, redox_atomindices_cathode = [], redox_atomindices_anode = []):
+        self.all_cathode_atomindices = deepcopy(redox_atomindices_cathode)
+        self.all_anode_atomindices = deepcopy(redox_atomindices_anode)
 
-    def atomidx(self, sim, grp_residues, grp_c, grp_d, grp_neu, functional_grp):
+    def atomidx(self, pdb, nbondedForce, grp_residues, grp_c, grp_d, grp_neu, functional_grp):
         if len(grp_residues) == 0:
             pass
         elif 0 < len(grp_residues) :
             grp_types = list(dict.fromkeys(grp_residues))
             for grp_res_i in range(len(grp_types)):
-            #grp_res_arr = ["res"+str(i) for i in range(len(grp_residues))]
                 grp_type_i = grp_types[grp_res_i]
+                self.chain_idx = -1
                 self.grp_idx = -1
                 self.res_idx = -1
                 self.c562_1 = -1
                 self.c562_2 = -1
-                self.cathode = []
-                self.anode = []
+                self.grpc_cathode = []
+                self.grpc_anode = []
                 self.dummy = []
                 self.neutral = []
                 self.extra = []
-
-                for grp_res in sim.simmd.topology.residues():
+                for grp_res in pdb.topology.residues():
                     self.grp_list = []
                     self.electrode_1_list = []
                     self.electrode_2_list = []
                     if (grp_res.name == grp_type_i):
-                        if grp_residues.count(grp_type_i) <= 2:
-                            if self.grp_idx == -1:
-                                self.grp_idx = grp_res.index
-                                print(grp_res.index, grp_res.name, grp_res.id, "electrode_1")
-                                for atom in grp_res._atoms:
-                                    (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
-                                    self.electrode_1_list.append( int(atom.index) )
-                                    self.grp_list.append( int(atom.index) )
-                                self.electrode_1_arrays.append(self.electrode_1_list)
-                                self.grp_atomindices.append(self.grp_list)
-                            elif grp_res.index != self.grp_idx:
-                                print(grp_res.index, grp_res.name, grp_res.id, "electrode_2")
-                                for atom in grp_res._atoms:
-                                    (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
-                                    self.electrode_2_list.append( int(atom.index) )
-                                    self.grp_list.append( int(atom.index) )
-                                self.electrode_2_arrays.append(self.electrode_2_list)
-                                self.grp_atomindices.append(self.grp_list)
-                        else:
-                            if self.grp_idx == -1 or int(grp_res.id) <= int(grp_residues.count(grp_type_i)/2):
-                                self.grp_idx = grp_res.index
-                                print(grp_res.index, grp_res.name, grp_res.id, "electrode_1")
-                                for atom in grp_res._atoms:
-                                    (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
-                                    self.electrode_1_list.append( int(atom.index) )
-                                    self.grp_list.append( int(atom.index) )
-                                self.electrode_1_arrays.append(self.electrode_1_list)
-                                self.grp_atomindices.append(self.grp_list)
-                            elif grp_res.index != self.grp_idx or int(grp_res.id) > int(grp_residues.count(grp_type_i)/2):
-                                print(grp_res.index, grp_res.name, grp_res.id, "electrode_2")
-                                for atom in grp_res._atoms:
-                                    (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
-                                    self.electrode_2_list.append( int(atom.index) )
-                                    self.grp_list.append( int(atom.index) )
-                                self.electrode_2_arrays.append(self.electrode_2_list)
-                                self.grp_atomindices.append(self.grp_list)
-
+                        if self.chain_idx == -1 or self.chain_idx == grp_res.chain.index:
+                            self.chain_idx = grp_res.chain.index
+                            self.grp_idx = grp_res.index
+                            print(grp_res.index, grp_res.name, grp_res.id, "electrode_1")
+                            for atom in grp_res._atoms:
+                                (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+                                self.electrode_1_list.append( int(atom.index) )
+                                self.grp_list.append( int(atom.index) )
+                            self.all_cathode_atomindices.append(self.electrode_1_list)
+                            #self.grp_atomlist_arrays.append(self.grp_list)
+                        elif grp_res.chain.index != self.chain_idx:
+                            print(grp_res.index, grp_res.name, grp_res.id, "electrode_2")
+                            for atom in grp_res._atoms:
+                                (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
+                                self.electrode_2_list.append( int(atom.index) )
+                                self.grp_list.append( int(atom.index) )
+                            self.all_anode_atomindices.append(self.electrode_2_list)
+                            #self.grp_atomlist_arrays.append(self.grp_list)
                     if grp_res.name == grp_c:
                         if self.res_idx == -1:
                             self.res_idx = grp_res.index
                             for atom in grp_res._atoms:
-                                self.cathode.insert(int(atom.name[1:]), atom.index)
+                                self.grpc_cathode.append(int( atom.index))
                                 if atom.name == "C562":
                                     self.c562_1 = atom.index
                         elif grp_res.index != self.res_idx:
                             for atom in grp_res._atoms:
-                                self.anode.insert(int(atom.name[1:]), atom.index)
+                                self.grpc_anode.append(int( atom.index))
                                 if atom.name == "C562":
                                     self.c562_2 = atom.index
                     if grp_res.name == grp_d:
                         for atom in grp_res._atoms:
-                            (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
+                            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
                             self.dummy.append( int(atom.index) )
                     if grp_res.name == grp_neu:
                         for atom in grp_res._atoms:
-                            (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
+                            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
                             self.neutral.append( int(atom.index) )
-                    #if (grp_res.name != "grpc" and grp_res.name != "grpd" and grp_res.name != "grph" and grp_res.name not in pdbresidues_new) :
                     if (grp_res.name == str(functional_grp)) :
                         for atom in grp_res._atoms:
-                            (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(int(atom.index))
+                            (q_i, sig, eps) = nbondedForce.getParticleParameters(int(atom.index))
                             self.extra.append( int(atom.index) )
-        self.graph_arr = deepcopy(self.grp_atomindices)
-        electrode_1_arr = deepcopy(self.electrode_1_arrays)
-        electrode_2_arr = deepcopy(self.electrode_2_arrays)
-        return electrode_1_arr, electrode_2_arr
+
+        return self.all_cathode_atomindices, self.all_anode_atomindices
 
 
 class solution_Hlist:
@@ -947,32 +1060,63 @@ class get_Efield:
             H_idx = self.alist[H_i]
             self.position_z.append( positions[H_idx][2]._value )
     #def induced_q(self, eletrode_L, eletrode_R, cell_dist, sim, positions):
-    def induced_q(self, eletrode_L, eletrode_R, cell_dist, sim, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv):
+    def induced_q(self, eletrode_L, eletrode_R, cell_dist, nbondedForce, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv):
         for H_i in range(len(self.alist)):
             H_idx = self.alist[H_i]
             #(q_i, sig, eps) = sim.nbondedForce_Efield.getParticleParameters(H_idx)
-            (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(H_idx)
+            (q_mol_i, sig, eps) = nbondedForce.getParticleParameters(H_idx)
             self.position_z.append( positions[H_idx][2]._value )
             zR = eletrode_R - positions[H_idx][2]._value
             zL = positions[H_idx][2]._value - eletrode_L
-            self.Q_Cat_ind += (zR / cell_dist)* (- q_i._value)
-            self.Q_An_ind += (zL / cell_dist)* (- q_i._value)
+            self.Q_Cat_ind += (zR / cell_dist)* (- q_mol_i._value)
+            self.Q_An_ind += (zL / cell_dist)* (- q_mol_i._value)
 #        return self.Q_Cat_ind, self.Q_An_ind
 
         for i_atom in range(Ngraphene_atoms):
             index = graph[i_atom]
             #(q_i, sig, eps) = sim.nbondedForce_Efield.getParticleParameters(index)
-            (q_i, sig, eps) = sim.nbondedForce.getParticleParameters(index)
+            (q_i, sig, eps) = nbondedForce.getParticleParameters(index)
             if i_atom < Ngraphene_atoms / 2:
                 q_i = 1.0 / ( 4.0 * 3.14159265 ) * area_atom * (Voltage / Lgap + Voltage/cell_dist) * conv
                 self.Q_Cat += q_i
             else:  # anode
                 q_i = -1.0 / ( 4.0 * 3.14159265 ) * area_atom * (Voltage / Lgap + Voltage/cell_dist) * conv
                 self.Q_An += q_i
+
         ana_Q_Cat =  self.Q_Cat_ind + self.Q_Cat
         ana_Q_An = self.Q_An_ind + self.Q_An
         return ana_Q_Cat, ana_Q_An
 
+def get_induced_q_analytical(eletrode_L, eletrode_R, cell_dist, nbondedForce, positions, Ngraphene_atoms, graph, area_atom, Voltage, Lgap, conv, all_electrolytes_list):
+    Q_Cat_ind = 0.
+    Q_An_ind = 0.
+    Q_Cat = 0.
+    Q_An = 0.
+    for H_i in range(len(all_electrolytes_list)):
+        H_idx = all_electrolytes_list[H_i]
+        #(q_i, sig, eps) = sim.nbondedForce_Efield.getParticleParameters(H_idx)
+        (q_mol_i, sig, eps) = nbondedForce.getParticleParameters(H_idx)
+        #self.position_z.append( positions[H_idx][2]._value )
+        zR = eletrode_R - positions[H_idx][2]._value
+        zL = positions[H_idx][2]._value - eletrode_L
+        Q_Cat_ind += (zR / cell_dist)* (- q_mol_i._value)
+        Q_An_ind += (zL / cell_dist)* (- q_mol_i._value)
+     #return self.Q_Cat_ind, self.Q_An_ind
+
+    for i_atom in range(Ngraphene_atoms):
+        index = graph[i_atom]
+        #(q_i, sig, eps) = sim.nbondedForce_Efield.getParticleParameters(index)
+        (q_i, sig, eps) = nbondedForce.getParticleParameters(index)
+        if i_atom < Ngraphene_atoms / 2:
+            q_i = 1.0 / ( 4.0 * 3.14159265 ) * area_atom * (Voltage / Lgap + Voltage/cell_dist) * conv
+            Q_Cat += q_i
+        else:  # anode
+            q_i = -1.0 / ( 4.0 * 3.14159265 ) * area_atom * (Voltage / Lgap + Voltage/cell_dist) * conv
+            Q_An += q_i
+
+    ana_Q_Cat =  Q_Cat_ind + Q_Cat
+    ana_Q_An = Q_An_ind + Q_An
+    return ana_Q_Cat, ana_Q_An
 
 def Distance(p1, p2, initialPositions):
     pos_c562_1 = initialPositions[p1]
@@ -1018,6 +1162,9 @@ def read_input(filename):
     functional_grp = ""
     forcefield_files = []
     residueconnectivity_files = []
+    redox_state_f_xml = []
+    all_redox_states = []
+    #all_EA_gas = []
     with open(filename, "r") as infile:
         file_contents = infile.readlines()
         for input_i in file_contents:
@@ -1033,6 +1180,20 @@ def read_input(filename):
                 ntimestep_write = input_i.split()[2]
             if "platform_name" in input_i:
                 platform_name = input_i.split()[2]
+            if "E_fermi" in input_i:
+                E_fermi = input_i.split()[2]
+            if "redox_states" in input_i:
+                connect = input_i.replace(',',' ').split()[2:]
+                for state_i in connect:
+                    all_redox_states.append(int(state_i))
+            if "EA_neu" in input_i:
+                EA_neu = input_i.split()[2]
+            if "EA_red1" in input_i:
+                EA_red1 = input_i.split()[2]
+            #if "EA_gas" in input_i:
+            #    connect = input_i.replace(',',' ').split()[2:]
+            #    for state_i in connect:
+            #        all_EA_gas.append(float(state_i))
             if "ResidueConnectivityFiles" in input_i:
                 connect = input_i.replace(',',' ').split()[2:]
                 for xml_i in connect:
@@ -1047,7 +1208,11 @@ def read_input(filename):
                 if input_i.split()[2] == 'None':
                     redox_state_f_xml = ''
                 else:
-                    redox_state_f_xml = forcefieldfolder +  input_i.split()[2]
+                    connect = input_i.replace(',',' ').split()[2:]
+                    for xml_i in connect:
+                        redox_ff_file_i = forcefieldfolder + xml_i
+                        redox_state_f_xml.append(redox_ff_file_i)
+                    #redox_state_f_xml = forcefieldfolder +  input_i.split()[2]
             if "conducting_sheet" in input_i:
                 grp_c = input_i.split()[2]
             if "conducting_dummy" in input_i:
@@ -1058,11 +1223,9 @@ def read_input(filename):
                 functional_grp = input_i.split()[2]
             if "redox_at_graph" in input_i:
                 redox_mol = input_i.split()[2]
-            if "electrode_e_transfer" in input_i:
-                et_electrode = input_i.split()[2]
     #print(residueconnectivity_files, *residueconnectivity_files)
     #print(n_update, volt, temperature, nsec, residueconnectivity_files, forcefield_files, grp_c, grp_d, grp_neu, functional_grp)
 
-    return n_update, volt, temperature, nsec, ntimestep_write, platform_name, residueconnectivity_files, forcefield_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol, redox_state_f_xml, et_electrode
+    return n_update, volt, temperature, nsec, ntimestep_write, platform_name, residueconnectivity_files, forcefield_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol, redox_state_f_xml, all_redox_states, E_fermi, EA_neu, EA_red1
 
 

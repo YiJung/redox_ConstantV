@@ -2,7 +2,6 @@
 
 from simtk.openmm.app import *
 from simtk.openmm import *
-#import simtk.unit as unit
 from simtk.unit import *
 from sys import stdout
 from time import gmtime, strftime
@@ -21,7 +20,7 @@ parser.add_argument("pdb", type=str, help="PDB file with initial positions")
 parser.add_argument("input", type=str, help="input parameters")
 args = parser.parse_args()
 
-n_update, volt, temperature, nsec, ntimestep_write, platform_name, ResidueConnectivityFiles, FF_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol, redox_state_f_xml, et_electrode = read_input(args.input)
+n_update, volt, temperature, nsec, ntimestep_write, platform_name, ResidueConnectivityFiles, FF_files, grp_c, grp_d, grp_neu, functional_grp, redox_mol, redox_state_f_xml, redox_states, E_fermi, EA_neu, EA_red1 = read_input(args.input)
 
 if n_update is not None:
     outPath = 'simmd_' + n_update + "step_" + volt + "V_" + nsec + "ns_" + temperature + 'K'
@@ -32,14 +31,12 @@ if os.path.exists(outPath):
     shutil.rmtree(outPath)
 
 #strdir ='../'
-#forcefieldfolder = '../ffdir/'
 os.mkdir(outPath)
 os.chdir(outPath)
 chargesFile = open("charges.dat", "w")
 print(outPath)
 
 pdb = args.pdb
-#device_idx = args.devices
 sim = MDsimulation( 
         pdb, 
         float(temperature),
@@ -52,27 +49,26 @@ sim = MDsimulation(
         redox_state_f_xml
 )
 
+
 # add exclusions for intra-sheet non-bonded interactions.
-sim.exlusionNonbondedForce(sim.electrode_1_arr, sim.electrode_2_arr)
-sim.exlusionNonbondedForce2(sim.grpc, sim.grph)
-sim.exlusionNonbondedForce2(sim.grp_dummy, sim.grph)
-sim.exlusionNonbondedForce2(sim.grpc, sim.grp_dummy)
+sim.exlusionNonbondedForce(sim.electrode.all_cathode_atomindices, sim.electrode.all_anode_atomindices)
+for i_redox in range(len(sim.redox_molecules)):
+    sim.exlusionNonbondedForce2(sim.redox_molecules[i_redox].atomindex, sim.electrode.neutral)
+sim.exlusionNonbondedForce1(sim.graph)
+sim.exlusionNonbondedForce2(sim.grpc, sim.electrode.neutral)
+sim.exlusionNonbondedForce2(sim.electrode.dummy, sim.electrode.neutral)
 sim.simmd.context.reinitialize()
 sim.simmd.context.setPositions(sim.initialPositions)
 sim.initialize_energy()
 sim.equilibration()
 
-cell_dist, z_L, z_R = Distance(sim.c562_1, sim.c562_2, sim.initialPositions)
+cell_dist, z_L, z_R = Distance(sim.electrode.c562_1, sim.electrode.c562_2, sim.initialPositions)
 print(z_L, z_R)
 print('cathode-anode distance (nm)', cell_dist)
 boxVecs = sim.simmd.topology.getPeriodicBoxVectors()
 crossBox = numpy.cross(boxVecs[0], boxVecs[1])
 sheet_area = numpy.dot(crossBox, crossBox)**0.5 / nanometer**2
 print(sheet_area)
-
-#sim.Get_redox_charge_array("../ffdir/charge_qsem.xml")
-
-print('Starting Production NPT Simulation...')
 
 
 #************ get rid of the MD loop, just calculating converged charges ***********
@@ -95,12 +91,12 @@ q_max = 2.0  # Don't allow charges bigger than this, no physical reason why they
 f_iter = int(( float(nsec) * 1000000 / int(n_update) )) + 1  # number of iterations for charge equilibration
 #print('number of iterations', f_iter)
 small = 1e-4
+E_fermi = float(E_fermi) *96.487 # convert eV to kj/mol
+EA_neu = float(EA_neu) * 96.487
+EA_red1 = float(EA_red1) * 96.487
+
 
 sim.initializeCharge( Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, small, cell_dist)
-if et_electrode == 'cathode':
-    redox_charges_i_current = deepcopy(sim.redoxcharges_state1_cathode)
-elif et_electrode == 'anode':
-    redox_charges_i_current = deepcopy(sim.redoxcharges_state1_anode)
 
 for i in range(1, f_iter ):
     print()
@@ -115,26 +111,34 @@ for i in range(1, f_iter ):
     positions = state.getPositions()
     #sim.Charge_solver( Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol )
     sim.ConvergedCharge( Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol )
-    #sim.ConvergedCharge( Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max )
-    #sumq_cathode, sumq_anode = sim.FinalCharge(Ngraphene_atoms, sim.graph, args, i, chargesFile)
-    #print( 'total charge on graphene (cathode,anode):', sumq_cathode, sumq_anode )
-    #print('Charges converged, Energies from full Force Field')
-    #sim.PrintFinalEnergies()
 
-    #ind_Q = get_Efield(sim.solvent_list)
-    #ana_Q_Cat, ana_Q_An = ind_Q.induced_q( z_L, z_R, cell_dist, sim, positions, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv)
-    #print('Analytical Q_Cat, Q_An :', ana_Q_Cat, ana_Q_An)    
-    #sim.Scale_charge( Ngraphene_atoms, sim.graph, ana_Q_Cat, ana_Q_An, sumq_cathode, sumq_anode)
-    ntrials = 0
-    naccept = 0
-    if et_electrode == 'cathode':
-        #redox_charges_i_new = sim.Swap_redox_ff( sim.redox_atomindex_electrode_1, sim.redox_charges_newarray1, sim.redox_charges_oldarray1, ntrials, naccept, Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, redox_charges_i_current, tol )
-        redox_charges_i_new = sim.Swap_redox_ff( sim.redox_atomindices_cathode, sim.redoxcharges_state2_cathode, sim.redoxcharges_state1_cathode, ntrials, naccept, Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, redox_charges_i_current, tol )
-        redox_charges_i_current = redox_charges_i_new
-    elif et_electrode == 'anode':
-        #redox_charges_i_new = sim.Swap_redox_ff( sim.redox_atomindex_electrode_2, sim.redox_charges_newarray2, sim.redox_charges_oldarray2, ntrials, naccept, Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, redox_charges_i_current, tol)
-        redox_charges_i_new = sim.Swap_redox_ff( sim.redox_atomindices_anode, sim.redoxcharges_state2_anode, sim.redoxcharges_state1_anode, ntrials, naccept, Niter_max, Ngraphene_atoms, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, redox_charges_i_current, tol)
-        redox_charges_i_current = redox_charges_i_new
+    if redox_mol == "None":
+        pass
+    else:
+        state = sim.simmd.context.getState(getEnergy=True,getForces=True,getPositions=True)
+        PE_old = state.getPotentialEnergy()
+        redox_mol_i = random.randint(0, len(sim.redox_molecules)-1)
+        init_redox_atomcharges, init_redoxstate_list = get_charges_redoxstates_from_atomindex(sim.redox_molecules_atomindices, sim.nbondedForce)
+        electron_transfer = ['oxidation', 'reduction']
+        ET_i = random.choice(electron_transfer)
+        if ET_i == 'oxidation':
+            sim.redox_molecules[redox_mol_i].oxidation(sim.nbondedForce, redox_states, init_redoxstate_list[redox_mol_i], redox_mol_i, sim.Nredox_cathode)
+        if ET_i == 'reduction':
+            sim.redox_molecules[redox_mol_i].reduction(sim.nbondedForce, redox_states, init_redoxstate_list[redox_mol_i], redox_mol_i, sim.Nredox_cathode)
+        if sim.redox_molecules[redox_mol_i].flag == 1:
+            ntrials = 0
+            naccept = 0
+            sim.MonteCarlo_redox(ntrials, naccept, Ngraphene_atoms, Niter_max, sim.graph, area_atom, Voltage, Lgap, conv, q_max, args, i, chargesFile, z_L, z_R, cell_dist, positions, tol, redox_mol_i, redox_states, ET_i, PE_old._value, E_fermi, EA_neu, EA_red1)
+
+            new_redox_atomcharges, new_redoxstate_list = get_charges_redoxstates_from_atomindex(sim.redox_molecules_atomindices, sim.nbondedForce)
+            #print("redox states before monte carlo\n", init_redoxstate_list)
+            print("redox states (cathode) after monte carlo\n", new_redoxstate_list[:sim.Nredox_cathode])
+            print("redox states (anode) after monte carlo\n", new_redoxstate_list[sim.Nredox_cathode:])
+            #list_reductions = [ i for i in range(len(new_redoxstate_list)) if new_redoxstate_list[i] < sim.redox_molecules_redoxstates[0] ]
+            #list_oxidations = [ i for i in range(len(new_redoxstate_list)) if new_redoxstate_list[i] > sim.redox_molecules_redoxstates[0] ]
+            #print("N_reduction:", list_reductions, len(list_reductions)) 
+            #print("N_oxdation", list_oxidations, len(list_oxidations))
+
 
 print('Done!')
 
